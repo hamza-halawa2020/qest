@@ -14,7 +14,6 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\Rule;
 use Exception;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\DB;
 
 
 class ClientContoller extends Controller
@@ -34,7 +33,7 @@ class ClientContoller extends Controller
             $authenticatedUserId = Auth::id();
 
             $isUser = User::where('id', $authenticatedUserId)->exists();
-            $isClient = Client::where('national_id', $authenticatedUserId)->exists();
+            $isClient = Client::where('id', $authenticatedUserId)->exists();
 
             if ($isUser) {
                 $clients = Users_clients_relation_table::where('user_id', $authenticatedUserId)
@@ -60,59 +59,103 @@ class ClientContoller extends Controller
      * Store a newly created resource in storage.
      */
 
+    // public function store(StoreClientRequest $request)
+    // {
+    //     // try {
+    //     $loggedInUser = Auth::id();
+    //     $isUser = User::where('id', $loggedInUser)->exists();
+    //     $isClient = Client::where('id', $loggedInUser)->exists();
+
+    //     if ($isUser) {
+    //         $this->validate($request, [
+    //             'name' => 'required|string',
+    //             'phone' => [
+    //                 'required',
+    //                 'regex:/^(010|011|012|015)\d{8}$/',
+    //             ],
+    //             'password' => 'required|min:6',
+    //             'client_image' => 'required',
+    //             'national_id' => ['required', 'regex:/^([1-9]{1})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})[0-9]{3}([0-9]{1})[0-9]{1}$/']
+    //         ]);
+
+    //         $path = 'images/clients/';
+    //         $folder = public_path($path);
+    //         if (!is_dir($folder)) {
+    //             mkdir($folder, 0755, true);
+    //         }
+    //         if ($request->hasFile('client_image')) {
+    //             $file = $request->file('client_image');
+    //             $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+    //             $file->move($folder, $filename);
+    //             // } else {
+    //             //     $filename = 'no_image.png';
+    //         }
+
+    //         $client = Client::create([
+    //             "name" => $request->name,
+    //             "national_id" => $request->national_id,
+    //             "phone" => $request->phone,
+    //             'password' => Hash::make($request->password),
+    //             'client_image' => $filename,
+    //         ]);
+    //         Users_clients_relation_table::create([
+    //             'user_id' => $loggedInUser,  // Use $loggedInUser directly
+    //             'client_id' => $client->id,  // Use $client->id directly
+    //         ]);
+
+    //         return response()->json(['data' => new ClientResource($client)], 200);
+    //     } else if ($isClient) {
+    //         return response()->json(['message' => 'Unauthorized. Only users can create clients.'], 403);
+    //     }
+
+    //     // } catch (Exception $e) {
+    //     //     return response()->json($e, 500);
+    //     // }
+    // }
+
     public function store(StoreClientRequest $request)
     {
         try {
             $loggedInUser = Auth::id();
-            $isUser = User::where('id', $loggedInUser)->exists();
-            $isClient = Client::where('national_id', $loggedInUser)->exists();
 
-            if ($isUser) {
-                $this->validate($request, [
-                    'name' => 'required|string',
-                    'phone' => [
-                        'required',
-                        'regex:/^(010|011|012|015)\d{8}$/',
-                    ],
-                    'password' => 'required|min:6',
-                    'client_image' => 'required',
-                    'national_id' => ['required', 'regex:/^([1-9]{1})([0-9]{2})([0-9]{2})([0-9]{2})([0-9]{2})[0-9]{3}([0-9]{1})[0-9]{1}$/']
-                ]);
-
-                $path = 'images/clients/';
-                $folder = public_path($path);
-                if (!is_dir($folder)) {
-                    mkdir($folder, 0755, true);
-                }
-                if ($request->hasFile('client_image')) {
-                    $file = $request->file('client_image');
-                    $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
-                    $file->move($folder, $filename);
-                    // } else {
-                    //     $filename = 'no_image.png';
-                }
-
-                $client = Client::create([
-                    "name" => $request->name,
-                    "national_id" => $request->national_id,
-                    "phone" => $request->phone,
-                    'password' => Hash::make($request->password),
-                    'client_image' => $filename,
-                ]);
-                Users_clients_relation_table::create([
-                    'user_id' => $loggedInUser,  // Use $loggedInUser directly
-                    'client_id' => $client->national_id,  // Use $client->id directly
-                ]);
-
-                return response()->json(['data' => new ClientResource($client)], 200);
-            } else if ($isClient) {
+            // Check if the logged-in user is authorized to create clients
+            if (!User::where('id', $loggedInUser)->exists()) {
                 return response()->json(['message' => 'Unauthorized. Only users can create clients.'], 403);
             }
 
+            // Validate request data
+            $validatedData = $request->validated();
+
+            // Upload client image
+            $filename = null;
+            if ($request->hasFile('client_image')) {
+                $file = $request->file('client_image');
+                $path = 'images/clients/';
+                $filename = time() . '_' . uniqid() . '.' . $file->getClientOriginalExtension();
+                $file->move(public_path($path), $filename);
+            }
+
+            // Create client
+            $client = Client::create([
+                "name" => $validatedData['name'],
+                "national_id" => $validatedData['national_id'],
+                "phone" => $validatedData['phone'],
+                'password' => Hash::make($validatedData['password']),
+                'client_image' => $filename,
+            ]);
+
+            // Create relation between user and client
+            Users_clients_relation_table::create([
+                'user_id' => $loggedInUser,
+                'client_id' => $client->id,
+            ]);
+
+            return response()->json(['data' => new ClientResource($client)], 200);
         } catch (Exception $e) {
-            return response()->json($e, 500);
+            return response()->json(['message' => 'Internal Server Error'], 500);
         }
     }
+
 
 
     /**
